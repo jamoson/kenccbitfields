@@ -1,0 +1,56 @@
+Implementation of static initialization of bitfields in kencc
+
+This patch adds support for static (vector) initialization of
+structs that contains bitfields. The original compiler only
+supports dynamic initialization. Example:
+
+struct Stru {
+	unsigned int x : 5;
+	unsigned int y : 7;
+};
+
+struct Stru strustatic = { 13, 42 };	/* works with the patch */
+struct Stru strudynamic;
+
+void func()
+{
+	strudynamic.x = 13;
+	strudynamic.y = 42;
+}
+
+
+The current implementation only works for little-endian architectures
+5678 (arm, amd64, arm64, 386).
+
+Implementation details
+
+The compiler generally gerenate one DATA line for each element
+in the initializing array, but this does not work if a struct
+contains bitfields, as every 32-bit constand should be packed
+with as many bitfields as there is room for, thereby breaking
+the 1:1 relationship between array elements and DATA lines.
+
+The implementation modifies cc/dcl.c and [5678]c/swt.c:
+
+1. if a bitfield is encountered in a struct, a DATA line
+for a 32-bit constant is genrated, but a pointer is kept
+to the place of the constant in the output tree.
+
+2. if the bitfield is followed by subsequent bitfileds, the
+constant in the output tree is updated using the pointer,
+and no new DATA lines are generated.
+
+3. if a subsequent bitfield doesn't fit in the remaining
+bits of the previous bitfield constant a new DATA line
+is instead generated, and the pointer in the output tree
+is updated to point its constant instead.
+
+4. in swt.c gextern() is updated to update a global pointer
+to the constant (vconst) for which a assembly line is
+generated. Note: the global pointer is of type long* on
+all architectures (bitfields constants are four bytes),
+even though vconst is vlong on 64-bits architectures.
+The current implementation wouldn't work on big-endian
+architectures. It would be possible to work on all platforms
+with a bit more modifications in swt.c.
+/Jonas Amoson
